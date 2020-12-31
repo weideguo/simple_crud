@@ -13,7 +13,7 @@ curl 'http://127.0.0.1:8001/api/v1/app1/func1/select?site=bm_0001'
 curl 'http://127.0.0.1:8001/api/v1/app1/func1/select?site>=bm_0001'  
 curl 'http://127.0.0.1:8001/api/v1/app1/func1/select?site<=bm_0001'  
 curl 'http://127.0.0.1:8001/api/v1/app1/func1/select?site!=bm_0001'  
-
+curl 'http://127.0.0.1:8001/api/v1/app1/func1/select?id>=10&_=id&__=10,1' 
 
 #null
 curl 'http://127.0.0.1:8001/api/v1/app1/func1/select?a=aaa&b=null'  

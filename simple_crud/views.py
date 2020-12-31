@@ -80,9 +80,12 @@ def params2condition(params,opt,opt_limits,danger_str=DEFAULT_DANGER_STR):
     condition_format=''
     condition_args=[]
     opt_limits_sub=opt_limits                #匹配的子条件 可能下一层条件过滤需要
+    limit_sub=''
     
     and_conn=' AND '
     or_conn=' OR '
+    limit_conn=' LIMIT '
+    where_conn='WHERE '
     default_ao='='   #Arithmetic Operators
     for k in params:
         if danger_check:
@@ -96,6 +99,22 @@ def params2condition(params,opt,opt_limits,danger_str=DEFAULT_DANGER_STR):
                         danger_check='should be normal in column name'
                 if not danger_check:      
                     select_columns='`'+params[k].replace(',','`,`')+'`'
+        elif k=='__' :   
+            if opt == 'select' and params[k]:
+                limit_sub = limit_conn+params[k]
+                _limit = params[k].split(',')
+                print(_limit)
+                if len(_limit)!=1 and len(_limit)!=2:
+                    limit_sub=''
+                    danger_check='limit length not match'
+                for l in _limit:
+                    try:
+                        int(l)
+                    except:
+                        limit_sub=''
+                        danger_check='should be int in limit'
+                        break
+        
         elif danger_str and re.search(danger_str,k):
             danger_check='should be normal in column name'
         else:
@@ -120,7 +139,10 @@ def params2condition(params,opt,opt_limits,danger_str=DEFAULT_DANGER_STR):
         condition_format=condition_format[len(or_conn):]  
     
     if condition_format:
-        condition_format='WHERE '+condition_format
+        condition_format=where_conn+condition_format
+    
+    condition_format += limit_sub
+    
     
     return danger_check, condition_format, condition_args, select_columns,opt_limits_sub
 
@@ -183,7 +205,7 @@ def request_parse(request, args, opt_allow=[]):
     err_response=''
     data = request.data
     _args=args.split('/')
-    opt=_args[-1]
+    opt=_args[-1].lower()
     tag='/'.join(_args[:-1])
     
     params=request.GET              
