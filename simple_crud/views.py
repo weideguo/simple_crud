@@ -1,36 +1,121 @@
 # -*- coding: utf-8 -*-
-
 import re
-from rest_framework.views import APIView
 from rest_framework.response import Response
-
 from django.db import connection,transaction
 from django.conf import settings
 
-MyView = APIView
-
-#有些表可能不需要提供如delete操作
-API_TABLE_MAP=[('app1/func1', 'a',  {'insert':0,'update':[],'select':[],'delete':[]}),
-               ('app1/func2', 'a1', {'insert':2,'update':[],'select':[]}),
-               ('app1/func3', 'a2', {}),
-]
-"""
-(where的条件，额外条件)
-update where   (a=aaa and b=bbb,[c1,c]) (y=aaa or y=bbb, [c2,c3])  (y>=aaa or y<=bbb, [c2,c3])  (y!=aaa or y!=bbb, [c2,c3])           防止更改额外的字段
-delete where
-select where   (a=aaa and b=bbb,[c1,c]) (y=aaa or y=bbb, [c2,c3])  (y>=aaa or y<=bbb, [c2,c3])  (y!=aaa or y!=bbb, [c2,c3])           只能查询指定的字段 
-insert         更改行数限制  0:无限
-"""
+from .config import *
 
 
-DEFAULT_DANGER_STR=getattr(settings, 'SIMPLE_CRUD_DANGER_STR', ';|"|@|`|\'')
+DEFAULT_DANGER_STR=getattr(settings, 'SIMPLE_CRUD_DANGER_STR', ';|"|@|`|\'|\\\\')
 
+
+def get_opt_limits_sub_by_keys(keys,opt_limits,limit_offset=0,match_type='>='):
+    """
+    由字段名过滤，获取匹配的字段限制条件
+    """
+    opt_limits_sub=[]
+    danger_check=''
+    if not opt_limits:
+        return opt_limits,danger_check
+    
+    for l in opt_limits:
+        _keys=l[limit_offset].keys()
+        
+        if match_type=='>=':
+            #只需要确保传入的条件大于配置的条件，之后的操作再做值判断 where条件使用
+            if set(keys)>=set(_keys) or not _keys:
+                opt_limits_sub.append(l)
+         
+        elif match_type=='==':
+            #只需要确保传入的条件恒等于配置的条件      insert update的值判断时使用
+            if set(keys)==set(_keys) or not _keys:
+                opt_limits_sub.append(l)   
+        
+        elif match_type=='<=':
+            #只需要确保传入的条件小于配置的条件，之后的操作再做值判断
+            if set(keys)<=set(_keys) or not _keys:
+                opt_limits_sub.append(l)
+    
+    if not opt_limits_sub:
+        danger_check='keys number not enough'
+    return opt_limits_sub,danger_check
+
+
+def get_opt_limits_sub_by_kv(key,value,opt_limits,limit_offset=0,transfer_value=1):
+    """
+    由字段以及字段值，获取匹配的字段限制条件
+    """
+    opt_limits_sub=[]
+    danger_check=''
+    if not opt_limits:
+        return opt_limits,danger_check
+    
+    if transfer_value:
+        try:
+            value=int(value)
+        except:
+            pass
+    
+    for l in opt_limits:
+        if not key in l[limit_offset]:
+            #允许额外的传入条件 但额外的传入条件只能为等值 且不能出现 or
+            if key[0] != '|' and not key[-1] in ['!','>','<']:
+                opt_limits_sub.append(l)
+        else: 
+            v_limit=l[limit_offset][key]
+            if not v_limit:
+                # 为空则允许任意传入的条件
+                opt_limits_sub.append(l)
+            else:
+                if (isinstance(v_limit,str) or isinstance(v_limit,int)) and v_limit==value:
+                    #str/int  等值过滤
+                    opt_limits_sub.append(l)
+                elif isinstance(v_limit,str)  and isinstance(value,str) and re.match(v_limit,value):
+                    #正则过滤
+                    opt_limits_sub.append(l)
+                elif isinstance(v_limit,list) and isinstance(value,int) and value>=v_limit[0] and (len(v_limit)==1 or value<=v_limit[1]):
+                    #[] 范围过滤
+                    opt_limits_sub.append(l)
+                elif isinstance(v_limit,set) and value in v_limit:
+                    #{} 枚举过滤
+                    opt_limits_sub.append(l)
+                    
+    if not opt_limits_sub:
+        danger_check='key value condition not match' 
+    
+    return opt_limits_sub,danger_check
+
+
+def get_opt_limits_sub_select(select_columns,opt_limits,limit_offset=1):
+    """
+    select的选择字段，获取匹配的字段限制条件
+    select_columns='*'
+    select_columns='a,b,c'
+    """
+    opt_limits_sub=[]
+    danger_check=''
+    if not opt_limits:
+        return opt_limits,danger_check
+    
+    for l in opt_limits:
+        _select_columns=l[limit_offset]
+        if not _select_columns:
+            #为空 表明所有字段都运行查询
+            opt_limits_sub.append(l)
+        elif set(select_columns.split(','))<=set(_select_columns):
+            opt_limits_sub.append(l)
+    
+    if not opt_limits_sub:
+        danger_check='select columns out of limit'    
+    return opt_limits_sub,danger_check
+    
 
 def transfer_field(field,or_conn=' OR ',and_conn=' AND '):
     """
     由url的key转换成sql的字段
     """
-    break_flag=False
+    break_flag=''
     _k=field
     ao_pre=''
     connector=and_conn
@@ -48,7 +133,7 @@ def transfer_value(value,ao_pre,default_ao='='):
     """
     转换url的value
     """
-    break_flag=False
+    break_flag=''
     v=''
     _ao=ao_pre+default_ao
     #print(v,str)
@@ -75,35 +160,46 @@ def params2condition(params,opt,opt_limits,danger_str=DEFAULT_DANGER_STR):
     params url字典类型参数 
     {'a':'aaa','b':'bbb'}  => 'WHERE a=%s and b=%s' ['aaa','bbb']
     """
-    danger_check=False
+    danger_check=''
     select_columns='*'
     condition_format=''
     condition_args=[]
     opt_limits_sub=opt_limits                #匹配的子条件 可能下一层条件过滤需要
-    limit_sub=''
+    limit_sub=''                             
     
     and_conn=' AND '
     or_conn=' OR '
     limit_conn=' LIMIT '
     where_conn='WHERE '
     default_ao='='   #Arithmetic Operators
+    
+    
+    #先确保字段数匹配
+    logger.debug("origin where keys limits: %s %s" % (list(params.keys()), opt_limits_sub))
+    opt_limits_sub,danger_check=get_opt_limits_sub_by_keys(params.keys(),opt_limits_sub)
+    logger.debug("where keys limits: %s %s" % (list(params.keys()), opt_limits_sub))
     for k in params:
         if danger_check:
             break
         _k=k
         if k=='_' :
-            if params[k]:
+            if opt == 'select' and params[k]:
                 #select_columns=params[k]
                 for c in params[k]:
                     if danger_str and re.search(danger_str,c):
                         danger_check='should be normal in column name'
+                
                 if not danger_check:      
                     select_columns='`'+params[k].replace(',','`,`')+'`'
+                    logger.debug("origin select columns limits: %s %s" % (params[k],str(opt_limits_sub)))
+                    opt_limits_sub,danger_check=get_opt_limits_sub_select(params[k],opt_limits_sub)
+                    logger.debug("select columns limits: %s %s" % (params[k],str(opt_limits_sub)))
+                    
         elif k=='__' :   
             if opt == 'select' and params[k]:
                 limit_sub = limit_conn+params[k]
                 _limit = params[k].split(',')
-                print(_limit)
+                #print(_limit)
                 if len(_limit)!=1 and len(_limit)!=2:
                     limit_sub=''
                     danger_check='limit length not match'
@@ -118,6 +214,13 @@ def params2condition(params,opt,opt_limits,danger_str=DEFAULT_DANGER_STR):
         elif danger_str and re.search(danger_str,k):
             danger_check='should be normal in column name'
         else:
+            #逐字段过滤
+            logger.debug("origin where kv limits: %s %s %s" % (k, params[k],str(opt_limits_sub)))
+            opt_limits_sub,danger_check=get_opt_limits_sub_by_kv(k, params[k], opt_limits_sub)
+            logger.debug("where kv limits: %s %s %s" % (k, params[k],str(opt_limits_sub)))
+            if danger_check:
+                break
+            
             break_flag, connector,_k,ao_pre=transfer_field(k)
             if break_flag:
                 danger_check=break_flag
@@ -141,8 +244,17 @@ def params2condition(params,opt,opt_limits,danger_str=DEFAULT_DANGER_STR):
     if condition_format:
         condition_format=where_conn+condition_format
     
-    condition_format += limit_sub
+    if opt=='select':
+        if not limit_sub:
+            #select 默认分页
+            limit_sub=' LIMIT 10'
+            
+        if not danger_check and select_columns=='*':
+            logger.debug("origin select columns limits: %s %s" % (select_columns,str(opt_limits_sub)))
+            opt_limits_sub,danger_check=get_opt_limits_sub_select(select_columns,opt_limits_sub)
+            logger.debug("select columns limits: %s %s" % (select_columns,str(opt_limits_sub)))
     
+        condition_format += limit_sub
     
     return danger_check, condition_format, condition_args, select_columns,opt_limits_sub
 
@@ -154,24 +266,43 @@ def dict2insetinfo(data,opt_limits,danger_str=DEFAULT_DANGER_STR):
     
     "insert into ttt(a,b) values(%s,%s);"
     """
-    danger_check=False
+    danger_check=''
     insetinfo=[]
+    opt_limits_sub=opt_limits
     for d in data:
+        if danger_check:
+            break
+    
         _column="" 
         _data=[]
+        __data=[]
+        
+        #插入的字段必须恒等于配置的字段
+        logger.debug("origin insert keys limits: %s %s" % (list(d.keys()),str(opt_limits_sub)))
+        opt_limits_sub,danger_check=get_opt_limits_sub_by_keys(d.keys(),opt_limits_sub,limit_offset=1,match_type='==')  
+        logger.debug("insert keys limits: %s %s" % (list(d.keys()),str(opt_limits_sub)))
+        if danger_check:
+            break
+        
         for k in d:
             if danger_str and re.search(danger_str,k):
                 danger_check='should be normal in column name'
                 data=[]
                 break
+            
+            #逐个插入值判断
+            logger.debug("origin insert kv limits: %s %s %s" % (k,d[k],str(opt_limits_sub)))
+            opt_limits_sub,danger_check=get_opt_limits_sub_by_kv(k,d[k],opt_limits_sub,limit_offset=1,transfer_value=0)
+            logger.debug("insert kv limits: %s %s %s" % (k,d[k],str(opt_limits_sub)))
+            if danger_check:
+                break
+             
             _column += ',`'+k+'`'
             _data.append(d[k])
         _column=_column[1:]
         _column_format=(',%s'*len(_data))[1:]
         insetinfo.append([_column,_column_format,_data])
     
-    if opt_limits and len(insetinfo)>opt_limits:
-        danger_check='to nuch insert'
     return danger_check,insetinfo
     
 
@@ -182,15 +313,25 @@ def dict2updateinfo(data,opt_limits,danger_str=DEFAULT_DANGER_STR):
     
     "update ttt set a=%s,b=%s where x=%s and y=%s;"
     """
-    danger_check=False
+    danger_check=''
     update_column_format=''
     update_args=[]
-
+    opt_limits_sub=opt_limits
+    #使用第二个配置条件判断 更改的字段必须等于配置的字段
+    logger.debug("origin update keys limits: %s %s" % (list(data.keys()),str(opt_limits_sub)))
+    opt_limits_sub,danger_check=get_opt_limits_sub_by_keys(data.keys(),opt_limits_sub,limit_offset=1,match_type='==')  
+    logger.debug("update keys limits: %s %s" % (list(data.keys()),str(opt_limits_sub)))
     for k in data:
+        if danger_check:
+            break
+        
         if danger_str and re.search(danger_str,k):
             danger_check='should be normal in column name'
             data=[]
             break
+        logger.debug("origin update kv limits: %s %s %s" % (k,data[k],str(opt_limits_sub)))
+        opt_limits_sub,danger_check=get_opt_limits_sub_by_kv(k,data[k],opt_limits_sub,limit_offset=1,transfer_value=0)
+        logger.debug("origin update kv limits: %s %s %s" % (k,data[k],str(opt_limits_sub)))
         update_column_format += ',`'+k+'`=%s'
         update_args.append(data[k])
     
@@ -238,8 +379,7 @@ class SimpleCRUD(MyView):
     '''
     限制
     范围判断只能支持 <= >= 不支持 < >         
-    反义符号\可能导致不符合预期
-    不支持复杂的条件因为实现比较复杂，使用视图代替 xx or (xx and xx)
+    不支持复杂的条件因为实现比较复杂，使用视图代替 xx or (aa and bb)
     
     '''
 
@@ -319,8 +459,8 @@ class SimpleCRUD(MyView):
             if danger_check:
                 return Response({'status':-1,'msg':danger_check})
             danger_check1,update_column_format,update_args = dict2updateinfo(data,opt_limits_sub)        
-            if danger_check:
-                return Response({'status':-1,'msg':danger_check})
+            if danger_check1:
+                return Response({'status':-1,'msg':danger_check1})
             
             sql='UPDATE %s SET %s %s;' % (table_name,update_column_format,condition_format)
             sql_args = update_args+condition_args
