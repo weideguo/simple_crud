@@ -1,13 +1,58 @@
 # -*- coding: utf-8 -*-
 import re
+import sys
+import logging
+import threading
+
+from rest_framework.views import APIView
 from rest_framework.response import Response
-from django.db import connection,transaction
+from django.db import connections
 from django.conf import settings
 
-from .config import *
+from .config import API_TABLE_MAPPING
 
+'''
+settings.py 文件可以设置的配置项
+SIMPLE_CRUD_DB
+SIMPLE_CRUD_MAPPING
+SIMPLE_CRUD_DANGER_STR
+SIMPLE_CRUD_LOGGER
+SIMPLE_CRUD_BASEVIEW
+
+'''
+API_TABLE_MAPPING = getattr(settings, 'SIMPLE_CRUD_MAPPING', API_TABLE_MAPPING)
+
+BASEVIEW = getattr(settings, 'SIMPLE_CRUD_BASEVIEW', APIView)
+
+DEFAULT_DB=getattr(settings, 'SIMPLE_CRUD_DB', 'default')
 
 DEFAULT_DANGER_STR=getattr(settings, 'SIMPLE_CRUD_DANGER_STR', ';|"|@|`|\'|\\\\')
+
+logger_name=getattr(settings,'LOGGING',{}).get('SIMPLE_CRUD_LOGGER')
+
+
+def simple_logger(name,stream=sys.stdout,level=logging.DEBUG,format="%(asctime)s - %(message)s"):
+    """获取简易的日志对象 只是线程安全"""
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    
+    format = logging.Formatter(format)                      # output format 
+    sh = logging.StreamHandler(stream=stream)               
+    sh.setFormatter(format)
+    logger.addHandler(sh)
+    
+    return logger
+
+
+if logger_name:
+    logger=logging.getLogger(logger_name)
+else:
+    logger=simple_logger('test')
+    
+#class logger():
+#    pass
+#
+#logger.debug=logger.error=logger.info=print
 
 
 def get_opt_limits_sub_by_keys(keys,opt_limits,limit_offset=0,match_type='>='):
@@ -38,7 +83,7 @@ def get_opt_limits_sub_by_keys(keys,opt_limits,limit_offset=0,match_type='>='):
                 opt_limits_sub.append(l)
     
     if not opt_limits_sub:
-        danger_check='keys number not enough'
+        danger_check='columns number not enough'
     return opt_limits_sub,danger_check
 
 
@@ -82,7 +127,7 @@ def get_opt_limits_sub_by_kv(key,value,opt_limits,limit_offset=0,transfer_value=
                     opt_limits_sub.append(l)
                     
     if not opt_limits_sub:
-        danger_check='key value condition not match' 
+        danger_check='key value not match' 
     
     return opt_limits_sub,danger_check
 
@@ -101,7 +146,7 @@ def get_opt_limits_sub_select(select_columns,opt_limits,limit_offset=1):
     for l in opt_limits:
         _select_columns=l[limit_offset]
         if not _select_columns:
-            #为空 表明所有字段都运行查询
+            #为空 表明所有字段都允许查询
             opt_limits_sub.append(l)
         elif set(select_columns.split(','))<=set(_select_columns):
             opt_limits_sub.append(l)
@@ -173,7 +218,6 @@ def params2condition(params,opt,opt_limits,danger_str=DEFAULT_DANGER_STR):
     where_conn='WHERE '
     default_ao='='   #Arithmetic Operators
     
-    
     #先确保字段数匹配
     logger.debug("origin where keys limits: %s %s" % (list(params.keys()), opt_limits_sub))
     opt_limits_sub,danger_check=get_opt_limits_sub_by_keys(params.keys(),opt_limits_sub)
@@ -184,7 +228,6 @@ def params2condition(params,opt,opt_limits,danger_str=DEFAULT_DANGER_STR):
         _k=k
         if k=='_' :
             if opt == 'select' and params[k]:
-                #select_columns=params[k]
                 for c in params[k]:
                     if danger_str and re.search(danger_str,c):
                         danger_check='should be normal in column name'
@@ -353,7 +396,7 @@ def request_parse(request, args, opt_allow=[]):
     
     table_name=''
     opt_limits='' 
-    for maps in API_TABLE_MAP:
+    for maps in API_TABLE_MAPPING:
         if maps[0]==tag:
             table_name = maps[1]
             opt_limits = maps[2]  
@@ -375,18 +418,18 @@ def request_parse(request, args, opt_allow=[]):
     return err_response,opt,_opt_limits,table_name,params,data
 
 
-class SimpleCRUD(MyView):
+class SimpleCRUD(BASEVIEW):
     '''
     限制
     范围判断只能支持 <= >= 不支持 < >         
-    不支持复杂的条件因为实现比较复杂，使用视图代替 xx or (aa and bb)
-    
+    只支持一个层级的条件，不支持复杂的条件，使用视图代替如 where xx=1 or (aa=2 and bb=3)  
     '''
-
+    
     def get(self, request, args = None):
         '''
         select delete
         '''
+        connection = connections[DEFAULT_DB]
         
         err_response,opt,opt_limits,table_name,params,data = request_parse(request, args, ['select','delete'])
         if err_response:
@@ -420,6 +463,7 @@ class SimpleCRUD(MyView):
         '''
         insert update
         '''
+        connection = connections[DEFAULT_DB]
         
         err_response,opt,opt_limits,table_name,params,data = request_parse(request, args, ['insert','update'])
         if err_response:

@@ -1,31 +1,4 @@
 # -*- coding: utf-8 -*-
-from rest_framework.views import APIView
-
-MyView = APIView
-
-#class logger():
-#    pass
-#
-#logger.debug=logger.error=logger.info=print
-
-import sys
-import logging
-import threading
-
-
-def simple_logger(name,stream=sys.stdout,level=logging.DEBUG,format="%(asctime)s - %(message)s"):
-    """获取简易的日志对象 只是线程安全"""
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    
-    format = logging.Formatter(format)                      # output format 
-    sh = logging.StreamHandler(stream=stream)               
-    sh.setFormatter(format)
-    logger.addHandler(sh)
-    
-    return logger
-
-logger=simple_logger('test')
 
 """
 api与表的映射
@@ -38,72 +11,94 @@ api与表的映射
 第一个条件为where后的限制
 第二个为insert/update post的值，或者select选择的值，即select的字段
 
-空     不限制范围
-[]     范围
-{}     枚举
-''     等值，正则
+空         不限制范围
+[]         范围
+{}         枚举
+字符串     等值，正则
+数字       等值
+
+select   where条件限制   select的字段限制
+delete   where条件限制   占位符
+update   where条件限制   set值的限制
+insert   占位符          插入值限制 
+
 """
-API_TABLE_MAP=[('app1/func1', 'a',  {'insert':[
-                                      (
-                                        {}, {'site':[],'id':[10,20]}
-                                      ),
-                                      (
-                                        {}, {'site':'^.{3}$','id':[30,40]}
-                                      ),
-                                     ],
-                                     'update':[
-                                       (
-                                         {'site':[],'id>':[]},   {'site':[],'id':[]}
-                                       ),
-                                       (
-                                         {'id':[10,100]},        {}
-                                       ),
-                                     ],
-                                     'select':[
-                                       (
-                                         {'site':[],'id>':[]},      ['site']
-                                       ), 
-                                       (
-                                         {'site':[],'id':[10,20]},  ['site','id']
-                                       ), 
-                                       (
-                                         {'site':[],'|id':[10,20]}, ['site']
-                                       ), 
-                                       (
-                                         {'id':{'null'}},           ['site']
-                                       ), 
-                                       (
-                                         {'id!':{'null'}},          ['site']
-                                       ), 
-                                       (
-                                         {'id!':{'null'}},          []
-                                       ), 
-                                       (
-                                         {},                        ['site']
-                                       ),
-                                     ],
-                                     
-                                     'delete':[
-                                       (
-                                         {'site':[],'id>':[]}, []
-                                       ),
-                                       (
-                                         {'site':[],'id':[10,20]}, []
-                                       ), 
-                                       (
-                                         {'site':[],'|id':[10,20]}, []
-                                       ), 
-                                       (
-                                         {'id':{'null'}}, []
-                                       ), 
-                                       (
-                                         {'id!':{'null'}}, []
-                                       ), 
-                                                                           
-                                     ]}),
+#                    url片段,  实际数据库表名, 操作的限制条件
+API_TABLE_MAPPING = [('app1/func1', 'a',  {
+                                          'select':[
+                                            (
+                                              {'site':[],'id':[]},        ['id']
+                                            ), 
+                                            (
+                                              {'site':[],'id':[11,20]},   []
+                                            ), 
+                                            (
+                                              {'site':[],'|id':[11,20]},  []
+                                            ), 
+                                            (
+                                              {'site':[],'|id!':[11,20]}, []
+                                            ), 
+                                            (
+                                              {'id':{1,3,4}},             ['site']
+                                            ), 
+                                            (
+                                              {'site':'^.{3}$'},          ['site']
+                                            ), 
+                                            (
+                                              {'site':'null'},            []
+                                            ), 
+                                            (
+                                              {'site!':'null'},           []
+                                            ), 
+                                            (
+                                              {},                         ['site']
+                                            ),
+                                          ],
+                                          'delete':[
+                                            (
+                                              {'site':[],'id>':[]},       []
+                                            ),                            
+                                            (                             
+                                              {'site':[],'id':[10,20]},   []
+                                            ),                            
+                                            (                             
+                                              {'site':[],'|id':[10,20]},  []
+                                            ),                            
+                                            (                             
+                                              {'id':{'null'}},            []
+                                            ),                            
+                                            (                             
+                                              {'id!':{'null'}},           []
+                                            ), 
+                                                                                
+                                          ],                                    
+                                          'update':[
+                                            (
+                                              {'site':[],'id':[]},   {'site':[],'id':[]}
+                                            ),
+                                            (
+                                              {'id':[10,100]},       {}
+                                            ),
+                                          ],                                     
+                                          'insert':[
+                                            (
+                                              {}, {'site':[],'id':[10,20]}
+                                            ),    
+                                            (     
+                                              {}, {'site':'^.{3}$','id':[30,40]}
+                                            ),    
+                                            (     
+                                              {}, {'id':[100,200]}
+                                            ),    
+                                            (     
+                                              {}, {'site':{'aaaa','bbbb','cccc'},'id':[201,300]}
+                                            ),
+                                          ],
+                                          
+                                          }),
                
                
                
-               ('app1/func2', 'a1', {'insert':2,'update':[],'select':[]}),
-               ('app1/func3', 'a2', {}),
+               ('app1/func2', 'a1', {'insert':2,'update':[],'select':[],'delete':[]}),
+               ('app1/func3', 'a2', {'insert':2,'update':[],'select':[]}),
 ]

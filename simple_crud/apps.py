@@ -4,5 +4,5 @@ from __future__ import unicode_literals
 from django.apps import AppConfig
 
 
-class FatmConfig(AppConfig):
-    name = 'fatm'
+class SimpleCrudConfig(AppConfig):
+    name = 'simple_crud'
