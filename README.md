@@ -2,7 +2,7 @@
 
 # simple_crud
 
-[![Python 3.6](https://img.shields.io/badge/python-3.6-blue.svg)](https://github.com/zouzhicun/simple_crud) 
+[![Python 2.7|3.7](https://img.shields.io/badge/python-2.7%7C3.7-blue.svg)](https://github.com/zouzhicun/simple_crud) 
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/zouzhicun/simple_crud/blob/master/LICENSE) 
 
 

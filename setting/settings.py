@@ -147,7 +147,7 @@ STATIC_URL = '/static/'
 
 
 #simlpe_crud
-SIMPLE_CRUD_DB='test'
+#SIMPLE_CRUD_DB='test'
 #SIMPLE_CRUD_MAPPING = [('app1/func1', 'a',  {'select':[]})]
 
 
