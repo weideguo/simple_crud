@@ -196,6 +196,13 @@ def transfer_value(value,ao_pre,default_ao='='):
                 _ao=' IS NOT '
             else:
                 break_flag='only is / is not allow for null condition_format'
+        elif re.match('.*%.*',v):
+            if not ao_pre:
+                _ao=' LIKE '
+            elif ao_pre=='!':
+                _ao=' NOT LIKE '
+            else:
+                break_flag='only like / not like allow for like condition_format'
             
     return break_flag, _ao, v, v_format
 

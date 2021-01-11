@@ -19,6 +19,12 @@ curl 'http://127.0.0.1:8001/api/v1/app1/func1/select?site>=bm_0001'
 curl 'http://127.0.0.1:8001/api/v1/app1/func1/select?site<=bm_0001'  
 curl 'http://127.0.0.1:8001/api/v1/app1/func1/select?site!=bm_0001'  
 
+#like not like 存在%时
+curl 'http://127.0.0.1:8001/api/v1/app1/func2/select?site=%aa' 
+curl 'http://127.0.0.1:8001/api/v1/app1/func2/select?site=a%a' 
+curl 'http://127.0.0.1:8001/api/v1/app1/func2/select?site=aa%' 
+curl 'http://127.0.0.1:8001/api/v1/app1/func2/select?site!=%aa' 
+
 #null
 curl 'http://127.0.0.1:8001/api/v1/app1/func1/select?site=null'  
 #not null
