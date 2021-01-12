@@ -104,8 +104,12 @@ def get_opt_limits_sub_by_kv(key,value,opt_limits,limit_offset=0,transfer_value=
     
     for l in opt_limits:
         if not key in l[limit_offset]:
+            '''
             #允许额外的传入条件 但额外的传入条件只能为等值 且不能出现 or
             if key[0] != '|' and not key[-1] in ['!','>','<']:
+            '''
+            #允许额外的传入条件 但额外的传入条件不能出现 or
+            if key[0] != '|':
                 opt_limits_sub.append(l)
         else: 
             v_limit=l[limit_offset][key]
@@ -116,7 +120,8 @@ def get_opt_limits_sub_by_kv(key,value,opt_limits,limit_offset=0,transfer_value=
                 if (isinstance(v_limit,str) or isinstance(v_limit,int)) and v_limit==value:
                     #str/int  等值过滤
                     opt_limits_sub.append(l)
-                elif isinstance(v_limit,str)  and isinstance(value,str) and re.match(v_limit,value):
+                #elif isinstance(v_limit,str)  and isinstance(value,str) and re.match(v_limit,value):
+                elif isinstance(v_limit,str) and re.match(v_limit,str(value)):
                     #正则过滤
                     opt_limits_sub.append(l)
                 elif isinstance(v_limit,list) and isinstance(value,int) and value>=v_limit[0] and (len(v_limit)==1 or value<=v_limit[1]):
@@ -167,8 +172,16 @@ def transfer_field(field,or_conn=' OR ',and_conn=' AND '):
     if field[0]=='|':
         _k=field[1:]
         connector=or_conn
+        
+    if field[-1] == '%':
+        if len(field)>=2 and field[-2] == '!':
+            _k=_k[:-2]
+            ao_pre=field[-2:]
+        else:
+            _k=_k[:-1]
+            ao_pre=field[-1]
     
-    if field[-1] in ['!','>','<']:
+    elif field[-1] in ['!','>','<']:
         _k=_k[:-1]
         ao_pre=field[-1]
     return break_flag,connector,_k,ao_pre
@@ -179,31 +192,27 @@ def transfer_value(value,ao_pre,default_ao='='):
     转换url的value
     """
     break_flag=''
-    v=''
-    _ao=ao_pre+default_ao
-    #print(v,str)
     v=value
     v_format='%s'
-    try:
-        v=int(value)
-    except ValueError: 
-        if v.lower()=='null':
-            v_format='null'
-            v=''
-            if not ao_pre:
-                _ao=' IS '
-            elif ao_pre=='!':
-                _ao=' IS NOT '
-            else:
-                break_flag='only is / is not allow for null condition_format'
-        elif re.match('.*%.*',v):
-            if not ao_pre:
-                _ao=' LIKE '
-            elif ao_pre=='!':
-                _ao=' NOT LIKE '
-            else:
-                break_flag='only like / not like allow for like condition_format'
-            
+    if ao_pre == '%':
+        _ao=' LIKE '
+    elif ao_pre == '!%':
+        _ao=' NOT LIKE '
+    else:
+        _ao=ao_pre+default_ao
+        try:
+            v=int(value)
+        except ValueError: 
+            if v.lower()=='null':
+                v_format='null'
+                v=''
+                if not ao_pre:
+                    _ao=' IS '
+                elif ao_pre=='!':
+                    _ao=' IS NOT '
+                else:
+                    break_flag='only is / is not allow for null condition_format'
+    
     return break_flag, _ao, v, v_format
 
 
@@ -281,7 +290,7 @@ def params2condition(params,opt,opt_limits,danger_str=DEFAULT_DANGER_STR):
                 danger_check=break_flag
                 break            
             
-            if v:
+            if v or int(v)==0:
                 condition_args.append(v)
                 
             condition_format += connector+('`%s`%s%s' % (_k, _ao, v_format))

@@ -99,13 +99,13 @@ API_TABLE_MAPPING = [('app1/func1', 'a',  {
                
                
                
-               ('app1/func2', 'a1', {'insert':2,'update':[],
+               ('app1/func2', 'a1', {'insert':[],'update':[],
                                         'select':[
                                           (
-                                            #{'site':'.*%.*'}, []        #必须存在% 即使用模糊查询
-                                            {'site':'^[^%]+$'},  []      #必须不存在% 即不能使用模糊查询
+                                            #{'site%':''}, []              #字段存在%在尾部，传入的参数用模糊查询  like
+                                            {'site!%':''}, []              #字段存在!%在尾部  not like
                                           ),
                                         ],
                                         'delete':[]}),
-               ('app1/func3', 'a2', {'insert':2,'update':[],'select':[]}),
+               ('app1/func3', 'a2', {'insert':[],'update':[],'select':[]}),
 ]
